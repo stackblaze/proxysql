@@ -2955,6 +2955,7 @@ void MySQL_Connection::ProcessQueryAndSetStatusFlags_UserVariables(char *query_d
 					}
 					break;
 				case 1: // new algorithm
+				case 2: // new algorithm, stay on locked hostgroup instead of erroring
 					if (myds->sess->locked_on_hostgroup > -1) {
 						// locked_on_hostgroup was set, so some variable wasn't parsed
 						set_status(true, STATUS_MYSQL_CONNECTION_USER_VARIABLE);

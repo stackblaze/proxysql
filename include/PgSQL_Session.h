@@ -299,6 +299,24 @@ private:
 	int handle_post_sync_execute_message(PgSQL_Execute_Message* execute_msg);
 	void handle_post_sync_error(PGSQL_ERROR_CODES errcode, const char* errmsg, bool fatal);
 	void handle_post_sync_locked_on_hostgroup_error(const char* query, int query_len);
+	/**
+	 * @brief With pgsql-set_query_lock_on_hostgroup=2, re-route a query whose
+	 * destination differs from locked_on_hostgroup to the locked hostgroup
+	 * instead of rejecting it (error 9006).
+	 * @return true if current_hostgroup was changed to locked_on_hostgroup.
+	 */
+	bool stay_on_locked_hostgroup();
+	/**
+	 * @brief With pgsql-read_after_write_ms > 0, force queries routed to a
+	 * non-default hostgroup back to default_hostgroup for that many ms after
+	 * the session last executed a (potential) write on default_hostgroup.
+	 */
+	void apply_read_after_write_stickiness();
+	/**
+	 * @brief Record that the query that just ended may have written on the
+	 * default (writer) hostgroup, for read-after-write stickiness.
+	 */
+	void note_possible_write(const char* digest_text);
 	void reset_extended_query_frame();
 
 
@@ -537,6 +555,7 @@ public:
 	int default_hostgroup;
 	int previous_hostgroup;
 	int locked_on_hostgroup;
+	unsigned long long last_write_at; // thread->curtime (us) of the last possible write on default_hostgroup; 0 = never
 	int next_query_flagIN;
 	int mirror_hostgroup;
 	int mirror_flagOUT;

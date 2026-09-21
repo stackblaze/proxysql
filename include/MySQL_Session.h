@@ -700,6 +700,12 @@ class MySQL_Session: public Base_Session<MySQL_Session, MySQL_Data_Stream, MySQL
 	 *         not be freed or modified. The pointer is only valid while the connection exists.
 	 */
 	char * get_backend_version_for_hostgroup(int hostgroup_id);
+	/**
+	 * @brief With mysql-set_query_lock_on_hostgroup=2, re-route a query whose destination
+	 * differs from locked_on_hostgroup to the locked hostgroup instead of rejecting it
+	 * (errors 9005/9006). Returns true if current_hostgroup was changed.
+	 */
+	bool stay_on_locked_hostgroup();
 
 	friend void SQLite3_Server_session_handler(MySQL_Session*, void *_pa, PtrSize_t *pkt);
 

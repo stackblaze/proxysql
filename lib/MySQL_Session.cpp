@@ -4112,7 +4112,7 @@ void MySQL_Session::handler___status_WAITING_CLIENT_DATA___STATE_SLEEP___MYSQL_C
 		if (rc_break==true) {
 			return;
 		}
-		if (mysql_thread___set_query_lock_on_hostgroup == 1) { // algorithm introduced in 2.0.6
+		if (mysql_thread___set_query_lock_on_hostgroup >= 1) { // algorithm introduced in 2.0.6
 			if (locked_on_hostgroup < 0) {
 				if (lock_hostgroup) {
 					// we are locking on hostgroup now
@@ -4120,7 +4120,9 @@ void MySQL_Session::handler___status_WAITING_CLIENT_DATA___STATE_SLEEP___MYSQL_C
 				}
 			}
 			if (locked_on_hostgroup >= 0) {
-				if (current_hostgroup != locked_on_hostgroup) {
+				if (stay_on_locked_hostgroup()) {
+					// set_query_lock_on_hostgroup=2 : re-routed to locked HG, continue normally
+				} else if (current_hostgroup != locked_on_hostgroup) {
 					client_myds->DSS=STATE_QUERY_SENT_NET;
 					int l = CurrentQuery.QueryLength;
 					char *end = (char *)"";
@@ -4306,7 +4308,7 @@ void MySQL_Session::handler___status_WAITING_CLIENT_DATA___STATE_SLEEP___MYSQL_C
 		if (rc_break==true) {
 			return;
 		}
-		if (mysql_thread___set_query_lock_on_hostgroup == 1) { // algorithm introduced in 2.0.6
+		if (mysql_thread___set_query_lock_on_hostgroup >= 1) { // algorithm introduced in 2.0.6
 			if (locked_on_hostgroup < 0) {
 				if (lock_hostgroup) {
 					// we are locking on hostgroup now
@@ -4314,7 +4316,9 @@ void MySQL_Session::handler___status_WAITING_CLIENT_DATA___STATE_SLEEP___MYSQL_C
 				}
 			}
 			if (locked_on_hostgroup >= 0) {
-				if (current_hostgroup != locked_on_hostgroup) {
+				if (stay_on_locked_hostgroup()) {
+					// set_query_lock_on_hostgroup=2 : re-routed to locked HG, continue normally
+				} else if (current_hostgroup != locked_on_hostgroup) {
 					client_myds->DSS=STATE_QUERY_SENT_NET;
 					//int l = CurrentQuery.QueryLength;
 					int l = CurrentQuery.stmt_info->query_length;
@@ -5255,7 +5259,7 @@ __get_pkts_from_client:
 
 									if (autocommit_on_hostgroup>=0) {
 									}
-									if (mysql_thread___set_query_lock_on_hostgroup == 1) { // algorithm introduced in 2.0.6
+									if (mysql_thread___set_query_lock_on_hostgroup >= 1) { // algorithm introduced in 2.0.6
 										if (locked_on_hostgroup < 0) {
 											if (lock_hostgroup) {
 												// we are locking on hostgroup now
@@ -5270,7 +5274,9 @@ __get_pkts_from_client:
 											}
 										}
 										if (locked_on_hostgroup >= 0) {
-											if (current_hostgroup != locked_on_hostgroup) {
+											if (stay_on_locked_hostgroup()) {
+												// set_query_lock_on_hostgroup=2 : re-routed to locked HG, continue normally
+											} else if (current_hostgroup != locked_on_hostgroup) {
 												client_myds->DSS=STATE_QUERY_SENT_NET;
 												int l = CurrentQuery.QueryLength;
 												char *end = (char *)"";
@@ -6279,7 +6285,7 @@ handler_again:
 							proxy_debug(PROXY_DEBUG_MYSQL_QUERY_PROCESSOR, 5,
 								"User-variable SET tracking fallback reason=RESOURCE_LIMIT\n");
 							myconn->set_status(true, STATUS_MYSQL_CONNECTION_USER_VARIABLE);
-							if (mysql_thread___set_query_lock_on_hostgroup == 1 &&
+							if (mysql_thread___set_query_lock_on_hostgroup >= 1 &&
 								locked_on_hostgroup < 0 && current_hostgroup >= 0) {
 								locked_on_hostgroup = current_hostgroup;
 								thread->status_variables.stvar[st_var_hostgroup_locked]++;
@@ -8583,9 +8589,11 @@ __exit_set_destination_hostgroup:
 		}
 	}
 
-	if (mysql_thread___set_query_lock_on_hostgroup == 1) { // algorithm introduced in 2.0.6
+	if (mysql_thread___set_query_lock_on_hostgroup >= 1) { // algorithm introduced in 2.0.6
 		if (locked_on_hostgroup >= 0) {
-			if (current_hostgroup != locked_on_hostgroup) {
+			if (stay_on_locked_hostgroup()) {
+				// set_query_lock_on_hostgroup=2 : re-routed to locked HG, continue normally
+			} else if (current_hostgroup != locked_on_hostgroup) {
 				client_myds->DSS=STATE_QUERY_SENT_NET;
 				char buf[140];
 				snprintf(buf, sizeof(buf), "ProxySQL Error: connection is locked to hostgroup %d but trying to reach hostgroup %d", locked_on_hostgroup, current_hostgroup);
@@ -8598,6 +8606,17 @@ __exit_set_destination_hostgroup:
 		}
 	}
 	return false;
+}
+
+bool MySQL_Session::stay_on_locked_hostgroup() {
+	if (mysql_thread___set_query_lock_on_hostgroup != 2) return false;
+	if (locked_on_hostgroup < 0 || current_hostgroup == locked_on_hostgroup) return false;
+	proxy_debug(PROXY_DEBUG_MYSQL_QUERY_PROCESSOR, 5,
+		"Session=%p locked on HG %d: re-routing query destined to HG %d to the locked hostgroup\n",
+		this, locked_on_hostgroup, current_hostgroup);
+	current_hostgroup = locked_on_hostgroup;
+	thread->status_variables.stvar[st_var_hostgroup_locked_queries]++;
+	return true;
 }
 
 char * MySQL_Session::get_backend_version_for_hostgroup(int hostgroup_id) {

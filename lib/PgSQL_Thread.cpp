@@ -407,6 +407,7 @@ static char* pgsql_thread_variables_names[] = {
 	(char*)"query_processor_regex",
 	(char*)"query_processor_parser", // NOSONAR: matches array pattern
 	(char*)"set_query_lock_on_hostgroup",
+	(char*)"read_after_write_ms",
 	(char*)"set_parser_algorithm",
 	(char*)"auto_increment_delay_multiplex",
 	(char*)"auto_increment_delay_multiplex_timeout_ms",
@@ -1139,6 +1140,7 @@ PgSQL_Threads_Handler::PgSQL_Threads_Handler() {
 	variables.query_processor_regex = 1;
 	variables.query_processor_parser = 0;
 	variables.set_query_lock_on_hostgroup = 1;
+	variables.read_after_write_ms = 0;
 	variables.set_parser_algorithm = 2; // before 2.6.0 this was 1
 	variables.auto_increment_delay_multiplex = 5;
 	variables.auto_increment_delay_multiplex_timeout_ms = 10000;
@@ -2306,7 +2308,8 @@ char** PgSQL_Threads_Handler::get_variables_list() {
 		VariablesPointers_int["query_processor_regex"] = make_tuple(&variables.query_processor_regex, 1, 2, false);
 		VariablesPointers_int["query_processor_parser"] = make_tuple(&variables.query_processor_parser, 0, 1, false);
 		VariablesPointers_int["query_retries_on_failure"] = make_tuple(&variables.query_retries_on_failure, 0, 1000, false);
-		VariablesPointers_int["set_query_lock_on_hostgroup"] = make_tuple(&variables.set_query_lock_on_hostgroup, 0, 1, false);
+		VariablesPointers_int["set_query_lock_on_hostgroup"] = make_tuple(&variables.set_query_lock_on_hostgroup, 0, 2, false);
+		VariablesPointers_int["read_after_write_ms"] = make_tuple(&variables.read_after_write_ms, 0, 3600 * 1000, false);
 		VariablesPointers_int["set_parser_algorithm"] = make_tuple(&variables.set_parser_algorithm, 1, 3, false);
 
 		// throttle
@@ -4027,6 +4030,7 @@ void PgSQL_Thread::refresh_variables() {
 	pgsql_thread___kill_backend_connection_when_disconnect = (bool)GloPTH->get_variable_int((char*)"kill_backend_connection_when_disconnect");
 	pgsql_thread___max_allowed_packet = GloPTH->get_variable_int((char*)"max_allowed_packet");
 	pgsql_thread___set_query_lock_on_hostgroup = GloPTH->get_variable_int((char*)"set_query_lock_on_hostgroup");
+	pgsql_thread___read_after_write_ms = GloPTH->get_variable_int((char*)"read_after_write_ms");
 	pgsql_thread___verbose_query_error = (bool)GloPTH->get_variable_int((char*)"verbose_query_error");
 #ifdef IDLE_THREADS
 	pgsql_thread___session_idle_ms = GloPTH->get_variable_int((char*)"session_idle_ms");

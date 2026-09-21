@@ -15,7 +15,8 @@ pgsql_update_var PgSQL_Variables::updaters[PGSQL_NAME_LAST_HIGH_WM];
 
 PgSQL_Variables::PgSQL_Variables() {
 	// add here all the variables we want proxysql to recognize, but ignore
-	ignore_vars.push_back("application_name");
+	// NOTE: application_name used to be ignored; it is now a tracked variable
+	// (PGSQL_APPLICATION_NAME) so it is replayed on any backend the session lands on.
 	// NOTE: This variable has been temporarily ignored. Check issues #3442 and #3441.
 	//ignore_vars.push_back("session_track_schema");
 	variables_regexp = "";

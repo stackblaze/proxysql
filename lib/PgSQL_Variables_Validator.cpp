@@ -671,3 +671,62 @@ const pgsql_variable_validator pgsql_variable_validator_integer = {
 	.validate = &pgsql_variable_validate_integer,
 	.params = {}
 };
+
+/**
+ * @brief Validates a PostgreSQL timeout-style GUC (statement_timeout, lock_timeout,
+ * idle_in_transaction_session_timeout).
+ *
+ * Accepts a non-negative integer optionally followed by a PostgreSQL time unit
+ * (us, ms, s, min, h, d), e.g. "0", "30000", "30s", "5 min". The value is
+ * forwarded verbatim (quoted) to the backend, so no transformation is applied.
+ */
+bool pgsql_variable_validate_timeout(const char* value, const params_t* params, PgSQL_Session* session, char** transformed_value) {
+	(void)params;
+	(void)session;
+	if (transformed_value) *transformed_value = nullptr;
+	if (value == nullptr) return false;
+	const char* p = value;
+	while (*p == ' ' || *p == '\t') p++;
+	const char* digits = p;
+	while (*p >= '0' && *p <= '9') p++;
+	if (p == digits) return false;
+	while (*p == ' ' || *p == '\t') p++;
+	if (*p == '\0') return true;
+	static const char* units[] = { "us", "ms", "s", "min", "h", "d", nullptr };
+	for (int i = 0; units[i]; i++) {
+		size_t ul = strlen(units[i]);
+		if (strncasecmp(p, units[i], ul) == 0) {
+			const char* q = p + ul;
+			while (*q == ' ' || *q == '\t') q++;
+			if (*q == '\0') return true;
+		}
+	}
+	return false;
+}
+
+const pgsql_variable_validator pgsql_variable_validator_timeout = {
+	.type = VARIABLE_TYPE_STRING,
+	.validate = &pgsql_variable_validate_timeout,
+	.params = {}
+};
+
+/**
+ * @brief Validates application_name: any string without NUL, quotes handled by
+ * the SET parser. PostgreSQL silently truncates to NAMEDATALEN-1 and strips
+ * non-printable characters; we only reject embedded single quotes to keep the
+ * replayed `SET application_name = '<value>'` statement well-formed.
+ */
+bool pgsql_variable_validate_application_name(const char* value, const params_t* params, PgSQL_Session* session, char** transformed_value) {
+	(void)params;
+	(void)session;
+	if (transformed_value) *transformed_value = nullptr;
+	if (value == nullptr) return false;
+	if (strchr(value, '\'') != nullptr) return false;
+	return true;
+}
+
+const pgsql_variable_validator pgsql_variable_validator_application_name = {
+	.type = VARIABLE_TYPE_STRING,
+	.validate = &pgsql_variable_validate_application_name,
+	.params = {}
+};

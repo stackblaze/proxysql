@@ -73,6 +73,7 @@ static const std::array<std::string,7> pgsql_critical_variables = {
 
 static const std::set<std::string> pgsql_other_variables = {
 	"allow_in_place_tablespaces",
+	"application_name",
 	"bytea_output",
 	"client_min_messages",
 	"enable_bitmapscan",
@@ -83,8 +84,11 @@ static const std::set<std::string> pgsql_other_variables = {
 	"enable_sort",
 	"escape_string_warning",
 	"extra_float_digits",
+	"idle_in_transaction_session_timeout",
+	"lock_timeout",
 	"maintenance_work_mem",
 	"search_path",
+	"statement_timeout",
 	"synchronous_commit"
 };
 
@@ -331,6 +335,7 @@ PgSQL_Session::PgSQL_Session() {
 	current_hostgroup = -1;
 	default_hostgroup = -1;
 	locked_on_hostgroup = -1;
+	last_write_at = 0;
 	locked_on_hostgroup_and_all_variables_set = false;
 	next_query_flagIN = -1;
 	mirror_hostgroup = -1;
@@ -358,6 +363,7 @@ void PgSQL_Session::reset() {
 	current_hostgroup = -1;
 	default_hostgroup = -1;
 	locked_on_hostgroup = -1;
+	last_write_at = 0;
 	locked_on_hostgroup_and_all_variables_set = false;
 	if (mybes) {
 		reset_all_backends();
@@ -2480,7 +2486,7 @@ __implicit_sync:
 									//handler___status_WAITING_CLIENT_DATA___STATE_SLEEP___MYSQL_COM_QUERY___create_mirror_session();
 								}
 
-								if (pgsql_thread___set_query_lock_on_hostgroup == 1) { // algorithm introduced in 2.0.6
+								if (pgsql_thread___set_query_lock_on_hostgroup >= 1) { // algorithm introduced in 2.0.6
 									if (locked_on_hostgroup < 0) {
 										if (lock_hostgroup) {
 											// we are locking on hostgroup now
@@ -2495,7 +2501,9 @@ __implicit_sync:
 										}
 									}
 									if (locked_on_hostgroup >= 0) {
-										if (current_hostgroup != locked_on_hostgroup) {
+										if (stay_on_locked_hostgroup()) {
+											// set_query_lock_on_hostgroup=2 : re-routed to locked HG, fall through
+										} else if (current_hostgroup != locked_on_hostgroup) {
 											client_myds->DSS = STATE_QUERY_SENT_NET;
 											int l = CurrentQuery.QueryLength;
 											char* end = (char*)"";
@@ -5244,9 +5252,15 @@ __exit_set_destination_hostgroup:
 		current_hostgroup = qpo->destination_hostgroup;
 	}
 
+	// Read-after-write stickiness: keep reads on the writer for a short window
+	// after this session issued a write, so async replicas do not serve stale rows.
+	apply_read_after_write_stickiness();
+
 	// Hostgroup locking check
-	if (pgsql_thread___set_query_lock_on_hostgroup == 1 && locked_on_hostgroup >= 0) {
-		if (current_hostgroup != locked_on_hostgroup) {
+	if (pgsql_thread___set_query_lock_on_hostgroup >= 1 && locked_on_hostgroup >= 0) {
+		if (stay_on_locked_hostgroup()) {
+			// set_query_lock_on_hostgroup=2 : re-routed to locked HG, continue normally
+		} else if (current_hostgroup != locked_on_hostgroup) {
 			client_myds->DSS = STATE_QUERY_SENT_NET;
 			char buf[140];
 			snprintf(buf, sizeof(buf), "ProxySQL Error: connection is locked to hostgroup %d but trying to reach hostgroup %d",
@@ -5820,6 +5834,8 @@ void PgSQL_Session::RequestEnd(PgSQL_Data_Stream* myds, bool called_on_failure) 
 		}
 
 		if (query_digest_text) {
+			note_possible_write(query_digest_text);
+
 			// is savepoint currently present in transaction.
 			int savepoint_count = -1; // haven't checked yet
 
@@ -6538,6 +6554,53 @@ void PgSQL_Session::handle_post_sync_error(PGSQL_ERROR_CODES errcode, const char
 	status = WAITING_CLIENT_DATA;
 }
 
+bool PgSQL_Session::stay_on_locked_hostgroup() {
+	if (pgsql_thread___set_query_lock_on_hostgroup != 2) return false;
+	if (locked_on_hostgroup < 0 || current_hostgroup == locked_on_hostgroup) return false;
+	proxy_debug(PROXY_DEBUG_MYSQL_QUERY_PROCESSOR, 5,
+		"Session=%p locked on HG %d: re-routing query destined to HG %d to the locked hostgroup\n",
+		this, locked_on_hostgroup, current_hostgroup);
+	current_hostgroup = locked_on_hostgroup;
+	thread->status_variables.stvar[st_var_hostgroup_locked_queries]++;
+	return true;
+}
+
+// Statements that never write. Anything else executed on default_hostgroup is
+// treated as a potential write (conservative: BEGIN/COMMIT/INSERT/UPDATE/CALL/WITH...).
+static bool pgsql_digest_is_read_only(const char* d) {
+	if (d == NULL) return false;
+	while (*d == ' ' || *d == '\t' || *d == '\n' || *d == '\r' || *d == '(') d++;
+	return (strncasecmp(d, "SELECT", 6) == 0 && strcasestr(d, " FOR UPDATE") == NULL && strcasestr(d, " FOR SHARE") == NULL && strcasestr(d, " FOR NO KEY") == NULL && strcasestr(d, " FOR KEY") == NULL)
+		|| strncasecmp(d, "SHOW", 4) == 0
+		|| strncasecmp(d, "EXPLAIN", 7) == 0
+		|| strncasecmp(d, "SET", 3) == 0
+		|| strncasecmp(d, "RESET", 5) == 0
+		|| strncasecmp(d, "DISCARD", 7) == 0
+		|| strncasecmp(d, "DEALLOCATE", 10) == 0;
+}
+
+void PgSQL_Session::note_possible_write(const char* digest_text) {
+	if (pgsql_thread___read_after_write_ms <= 0) return;
+	if (current_hostgroup < 0 || current_hostgroup != default_hostgroup) return;
+	if (pgsql_digest_is_read_only(digest_text)) return;
+	last_write_at = thread->curtime;
+}
+
+void PgSQL_Session::apply_read_after_write_stickiness() {
+	if (pgsql_thread___read_after_write_ms <= 0 || last_write_at == 0) return;
+	if (current_hostgroup == default_hostgroup || default_hostgroup < 0) return;
+	if (transaction_persistent_hostgroup != -1) return; // already pinned
+	unsigned long long window_us = (unsigned long long)pgsql_thread___read_after_write_ms * 1000ULL;
+	if (thread->curtime >= last_write_at && (thread->curtime - last_write_at) < window_us) {
+		proxy_debug(PROXY_DEBUG_MYSQL_QUERY_PROCESSOR, 5,
+			"Session=%p read-after-write window active (%llu us ago): routing HG %d query to default HG %d\n",
+			this, (unsigned long long)(thread->curtime - last_write_at), current_hostgroup, default_hostgroup);
+		current_hostgroup = default_hostgroup;
+	} else if (thread->curtime >= last_write_at) {
+		last_write_at = 0; // window expired
+	}
+}
+
 void PgSQL_Session::handle_post_sync_locked_on_hostgroup_error(const char* query, int query_len) {
 	client_myds->DSS = STATE_QUERY_SENT_NET;
 	int l = query_len;
@@ -6639,7 +6702,7 @@ int PgSQL_Session::handle_post_sync_parse_message(PgSQL_Parse_Message* parse_msg
 			this, client_myds, previous_hostgroup);
 	}
 
-	if (pgsql_thread___set_query_lock_on_hostgroup == 1) {
+	if (pgsql_thread___set_query_lock_on_hostgroup >= 1) {
 		if (locked_on_hostgroup < 0) {
 			if (lock_hostgroup) {
 				// we are locking on hostgroup now
@@ -6647,7 +6710,7 @@ int PgSQL_Session::handle_post_sync_parse_message(PgSQL_Parse_Message* parse_msg
 			}
 		}
 		if (locked_on_hostgroup >= 0) {
-			if (current_hostgroup != locked_on_hostgroup) {
+			if (stay_on_locked_hostgroup() == false && current_hostgroup != locked_on_hostgroup) {
 				handle_post_sync_locked_on_hostgroup_error((const char*)CurrentQuery.QueryPointer, CurrentQuery.QueryLength);
 				l_free(parse_pkt.size, parse_pkt.ptr);
 				return 2;
@@ -6885,7 +6948,7 @@ int PgSQL_Session::handle_post_sync_describe_message(PgSQL_Describe_Message* des
 		proxy_debug(PROXY_DEBUG_MYSQL_COM, 5, "Session=%p client_myds=%p. Using previous hostgroup '%d'\n",
 			this, client_myds, previous_hostgroup);
 	}
-	if (pgsql_thread___set_query_lock_on_hostgroup == 1) {
+	if (pgsql_thread___set_query_lock_on_hostgroup >= 1) {
 		if (locked_on_hostgroup < 0) {
 			if (lock_hostgroup) {
 				// we are locking on hostgroup now
@@ -6893,7 +6956,7 @@ int PgSQL_Session::handle_post_sync_describe_message(PgSQL_Describe_Message* des
 			}
 		}
 		if (locked_on_hostgroup >= 0) {
-			if (current_hostgroup != locked_on_hostgroup) {
+			if (stay_on_locked_hostgroup() == false && current_hostgroup != locked_on_hostgroup) {
 				handle_post_sync_locked_on_hostgroup_error(CurrentQuery.extended_query_info.stmt_info->query, 
 					CurrentQuery.extended_query_info.stmt_info->query_length);
 				return 2;
@@ -7067,7 +7130,7 @@ int PgSQL_Session::handle_post_sync_bind_message(PgSQL_Bind_Message* bind_msg) {
 			this, client_myds, previous_hostgroup);
 	}
 
-	if (pgsql_thread___set_query_lock_on_hostgroup == 1) {
+	if (pgsql_thread___set_query_lock_on_hostgroup >= 1) {
 		if (locked_on_hostgroup < 0) {
 			if (lock_hostgroup) {
 				// we are locking on hostgroup now
@@ -7075,7 +7138,7 @@ int PgSQL_Session::handle_post_sync_bind_message(PgSQL_Bind_Message* bind_msg) {
 			}
 		}
 		if (locked_on_hostgroup >= 0) {
-			if (current_hostgroup != locked_on_hostgroup) {
+			if (stay_on_locked_hostgroup() == false && current_hostgroup != locked_on_hostgroup) {
 				handle_post_sync_locked_on_hostgroup_error(CurrentQuery.extended_query_info.stmt_info->query,
 					CurrentQuery.extended_query_info.stmt_info->query_length);
 				return 2;
@@ -7208,7 +7271,7 @@ int PgSQL_Session::handle_post_sync_execute_message(PgSQL_Execute_Message* execu
 			this, client_myds, previous_hostgroup);
 	}
 
-	if (pgsql_thread___set_query_lock_on_hostgroup == 1) {
+	if (pgsql_thread___set_query_lock_on_hostgroup >= 1) {
 		if (locked_on_hostgroup < 0) {
 			if (lock_hostgroup) {
 				// we are locking on hostgroup now
@@ -7216,7 +7279,7 @@ int PgSQL_Session::handle_post_sync_execute_message(PgSQL_Execute_Message* execu
 			}
 		}
 		if (locked_on_hostgroup >= 0) {
-			if (current_hostgroup != locked_on_hostgroup) {
+			if (stay_on_locked_hostgroup() == false && current_hostgroup != locked_on_hostgroup) {
 				handle_post_sync_locked_on_hostgroup_error(CurrentQuery.extended_query_info.stmt_info->query,
 					CurrentQuery.extended_query_info.stmt_info->query_length);
 				return 2;

@@ -1029,6 +1029,7 @@ public:
 		int query_processor_regex;
 		int query_processor_parser;
 		int set_query_lock_on_hostgroup;
+		int read_after_write_ms;
 		int set_parser_algorithm;
 		int auto_increment_delay_multiplex;
 		int auto_increment_delay_multiplex_timeout_ms;

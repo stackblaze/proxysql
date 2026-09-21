@@ -274,6 +274,7 @@ enum pgsql_variable_name {
 	PGSQL_TIMEZONE,
 	PGSQL_NAME_LAST_LOW_WM,
 	PGSQL_ALLOW_IN_PLACE_TABLESPACES,
+	PGSQL_APPLICATION_NAME,
 	PGSQL_BYTEA_OUTPUT,
 	PGSQL_CLIENT_MIN_MESSAGES,
 	PGSQL_ENABLE_BITMAPSCAN,
@@ -284,8 +285,11 @@ enum pgsql_variable_name {
 	PGSQL_ENABLE_SORT,
 	PGSQL_ESCAPE_STRING_WARNING,
 	PGSQL_EXTRA_FLOAT_DIGITS,
+	PGSQL_IDLE_IN_TRANSACTION_SESSION_TIMEOUT,
+	PGSQL_LOCK_TIMEOUT,
 	PGSQL_MAINTENANCE_WORK_MEM,
 	PGSQL_SEARCH_PATH,
+	PGSQL_STATEMENT_TIMEOUT,
 	PGSQL_SYNCHRONOUS_COMMIT,
 	PGSQL_NAME_LAST_HIGH_WM
 };
@@ -1200,6 +1204,7 @@ __thread bool pgsql_thread___parse_failure_logs_digest;
 __thread int pgsql_thread___auto_increment_delay_multiplex;
 __thread int pgsql_thread___auto_increment_delay_multiplex_timeout_ms;
 __thread int pgsql_thread___default_query_delay;
+__thread int pgsql_thread___read_after_write_ms;
 __thread int pgsql_thread___default_query_timeout;
 __thread int pgsql_thread___query_retries_on_failure;
 __thread int pgsql_thread___ping_interval_server_msec;
@@ -1557,6 +1562,7 @@ extern __thread bool pgsql_thread___parse_failure_logs_digest;
 extern __thread int pgsql_thread___auto_increment_delay_multiplex;
 extern __thread int pgsql_thread___auto_increment_delay_multiplex_timeout_ms;
 extern __thread int pgsql_thread___default_query_delay;
+extern __thread int pgsql_thread___read_after_write_ms;
 extern __thread int pgsql_thread___default_query_timeout;
 extern __thread int pgsql_thread___query_retries_on_failure;
 extern __thread int pgsql_thread___ping_interval_server_msec;
@@ -1977,6 +1983,8 @@ extern const pgsql_variable_validator pgsql_variable_validator_extra_float_digit
 extern const pgsql_variable_validator pgsql_variable_validator_maintenance_work_mem;
 extern const pgsql_variable_validator pgsql_variable_validator_client_encoding;
 extern const pgsql_variable_validator pgsql_variable_validator_search_path;
+extern const pgsql_variable_validator pgsql_variable_validator_timeout;
+extern const pgsql_variable_validator pgsql_variable_validator_application_name;
 
 pgsql_variable_st pgsql_tracked_variables[]{
 	{ PGSQL_CLIENT_ENCODING,       SETTING_VARIABLE,	"client_encoding", "client_encoding", "UTF8", (PGTRACKED_VAR_OPT_QUOTE | PGTRACKED_VAR_OPT_PARAM_STATUS), &pgsql_variable_validator_client_encoding, { "names", nullptr } },
@@ -1986,6 +1994,7 @@ pgsql_variable_st pgsql_tracked_variables[]{
 	{ PGSQL_TIMEZONE,			   SETTING_VARIABLE,	"TimeZone", "timezone", "GMT" , (PGTRACKED_VAR_OPT_QUOTE | PGTRACKED_VAR_OPT_PARAM_STATUS), nullptr, { "TIME ZONE", nullptr } },
 	{ PGSQL_NAME_LAST_LOW_WM,      session_status___NONE, "placeholder", "placeholder", "0" , 0, nullptr, nullptr },  // this is just a placeholder to separate the previous index from the next block
 	{ PGSQL_ALLOW_IN_PLACE_TABLESPACES,	   SETTING_VARIABLE,	"allow_in_place_tablespaces", "allow_in_place_tablespaces", "off", (0), &pgsql_variable_validator_bool, nullptr },
+	{ PGSQL_APPLICATION_NAME,	   SETTING_VARIABLE,	"application_name", "application_name", "", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_application_name, nullptr },
 	{ PGSQL_BYTEA_OUTPUT,		   SETTING_VARIABLE,	"bytea_output", "bytea_output", "hex", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_bytea_output,  nullptr },
 	{ PGSQL_CLIENT_MIN_MESSAGES,   SETTING_VARIABLE,	"client_min_messages", "client_min_messages", "notice", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_client_min_messages,  nullptr },
 	{ PGSQL_ENABLE_BITMAPSCAN,	   SETTING_VARIABLE,	"enable_bitmapscan", "enable_bitmapscan", "on", (0), &pgsql_variable_validator_bool, nullptr },
@@ -1996,8 +2005,11 @@ pgsql_variable_st pgsql_tracked_variables[]{
 	{ PGSQL_ENABLE_SORT,		   SETTING_VARIABLE,	"enable_sort", "enable_sort", "on", (0), &pgsql_variable_validator_bool, nullptr },
 	{ PGSQL_ESCAPE_STRING_WARNING, SETTING_VARIABLE,    "escape_string_warning", "escape_string_warning", "on", (0), &pgsql_variable_validator_bool, nullptr },
 	{ PGSQL_EXTRA_FLOAT_DIGITS,	   SETTING_VARIABLE,    "extra_float_digits", "extra_float_digits", "1", (0), &pgsql_variable_validator_extra_float_digits, nullptr },
+	{ PGSQL_IDLE_IN_TRANSACTION_SESSION_TIMEOUT, SETTING_VARIABLE, "idle_in_transaction_session_timeout", "idle_in_transaction_session_timeout", "0", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_timeout, nullptr },
+	{ PGSQL_LOCK_TIMEOUT,		   SETTING_VARIABLE,    "lock_timeout", "lock_timeout", "0", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_timeout, nullptr },
 	{ PGSQL_MAINTENANCE_WORK_MEM,  SETTING_VARIABLE,    "maintenance_work_mem", "maintenance_work_mem", "64MB", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_maintenance_work_mem, nullptr },
 	{ PGSQL_SEARCH_PATH,		   SETTING_VARIABLE,    "search_path", "search_path", "\"$user\", public", (PGTRACKED_VAR_OPT_NO_STRIP_VALUE), &pgsql_variable_validator_search_path, nullptr },
+	{ PGSQL_STATEMENT_TIMEOUT,	   SETTING_VARIABLE,    "statement_timeout", "statement_timeout", "0", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_timeout, nullptr },
 	{ PGSQL_SYNCHRONOUS_COMMIT,	   SETTING_VARIABLE,	"synchronous_commit", "synchronous_commit", "on", (PGTRACKED_VAR_OPT_QUOTE), &pgsql_variable_validator_synchronous_commit, nullptr},
 };
 
