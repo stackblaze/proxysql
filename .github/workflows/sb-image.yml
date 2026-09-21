@@ -1,0 +1,73 @@
+name: sb-image
+
+# Builds the fork's binary in the upstream Debian 13 packaging image and publishes
+# ghcr.io/stackblaze/proxysql:<tag> (official proxysql image + patched binary).
+on:
+  push:
+    branches: [ 'sb/**' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'image tag (default: derived from git describe)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BASE_IMAGE: proxysql/proxysql:3.0.11
+  BUILDER_IMAGE: proxysql/packaging:build-debian13-v4.0.0
+  IMAGE: ghcr.io/stackblaze/proxysql
+
+jobs:
+  build-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute tags
+        id: meta
+        run: |
+          DESC=$(git describe --tags --long --always)
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            # v3.0.11-2-gf9499b0 -> 3.0.11-sb.2.f9499b0
+            TAG=$(echo "$DESC" | sed -E 's/^v([0-9.]+)-([0-9]+)-g([0-9a-f]+)$/\1-sb.\2.\3/')
+          fi
+          echo "desc=$DESC" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"   >> "$GITHUB_OUTPUT"
+          echo "building $IMAGE:$TAG ($DESC)"
+
+      - name: Build proxysql binary
+        run: |
+          docker run --rm --entrypoint bash \
+            -v "$PWD:/opt/proxysql" -w /opt/proxysql \
+            "$BUILDER_IMAGE" -c 'git config --global --add safe.directory /opt/proxysql && make -j"$(nproc)"'
+          ls -la src/proxysql
+
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg BASE_IMAGE="$BASE_IMAGE" \
+            --build-arg GIT_VERSION="${{ steps.meta.outputs.desc }}" \
+            -f docker/sb/Dockerfile \
+            -t "$IMAGE:${{ steps.meta.outputs.tag }}" \
+            -t "$IMAGE:sb-${{ github.sha }}" \
+            .
+
+      - name: Login to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        run: |
+          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"
+          docker push "$IMAGE:sb-${{ github.sha }}"
+          echo "pushed $IMAGE:${{ steps.meta.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
