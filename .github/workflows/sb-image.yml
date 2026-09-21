@@ -2,6 +2,7 @@ name: sb-image
 
 # Builds the fork's binary in the upstream Debian 13 packaging image and publishes
 # ghcr.io/stackblaze/proxysql:<tag> (official proxysql image + patched binary).
+# Must run on the us-east-1 LAN runners (gh-runner-01/02), never GitHub-hosted.
 on:
   push:
     branches: [ 'sb/**' ]
@@ -23,7 +24,7 @@ env:
 
 jobs:
   build-image:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, us-east-1]
     steps:
       - uses: actions/checkout@v4
         with:
