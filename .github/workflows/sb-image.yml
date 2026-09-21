@@ -28,10 +28,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Compute tags
         id: meta
         run: |
+          git fetch --tags --force --quiet
           DESC=$(git describe --tags --long --always)
           TAG="${{ github.event.inputs.tag }}"
           if [ -z "$TAG" ]; then
@@ -43,8 +45,12 @@ jobs:
           echo "building $IMAGE:$TAG ($DESC)"
 
       - name: Build proxysql binary
+        env:
+          DESC: ${{ steps.meta.outputs.desc }}
         run: |
+          # GIT_VERSION is consumed by the Makefile (CURVER must look like X.Y.Z); strip the leading "v".
           docker run --rm --entrypoint bash \
+            -e GIT_VERSION="${DESC#v}" \
             -v "$PWD:/opt/proxysql" -w /opt/proxysql \
             "$BUILDER_IMAGE" -c 'git config --global --add safe.directory /opt/proxysql && make -j"$(nproc)"'
           ls -la src/proxysql
