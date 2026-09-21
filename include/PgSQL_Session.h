@@ -555,7 +555,6 @@ public:
 	int default_hostgroup;
 	int previous_hostgroup;
 	int locked_on_hostgroup;
-	unsigned long long last_write_at; // thread->curtime (us) of the last possible write on default_hostgroup; 0 = never
 	int next_query_flagIN;
 	int mirror_hostgroup;
 	int mirror_flagOUT;

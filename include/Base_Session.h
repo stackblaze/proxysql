@@ -70,6 +70,7 @@ class Base_Session {
 	 */
 	int default_charset;
 	int locked_on_hostgroup;
+	unsigned long long last_write_at = 0; // PgSQL: thread->curtime (us) of last possible write on default_hostgroup; 0 = never
 	int next_query_flagIN;
 	int mirror_hostgroup;
 	int mirror_flagOUT;
