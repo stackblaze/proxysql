@@ -18,7 +18,7 @@ jobs:
   build:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'ci:skip') }}
     name: build / ${{ matrix.tier }}
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     outputs:
       groups: ${{ steps.simulator-groups.outputs.groups }}
@@ -93,7 +93,7 @@ jobs:
     needs:
     - tier-selection
     - build
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, us-east-1]
     permissions:
       contents: read
       id-token: write

@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   init_release:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     permissions:
       contents: write
@@ -72,7 +72,7 @@ jobs:
 
   build:
     needs: init_release
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     permissions:
       contents: write

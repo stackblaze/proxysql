@@ -22,7 +22,7 @@ concurrency:
 jobs:
   builds:
     name: build (${{ inputs.tier || 'v4.0' }}, ${{ matrix.target }})
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     strategy:
       fail-fast: false

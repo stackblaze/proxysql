@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   init_release:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     # No concurrency group: GitHub's "1 running + 1 pending" rule causes
     # mass cancellations when many workflows share a group. Instead we
@@ -79,7 +79,7 @@ jobs:
 
   build:
     needs: init_release
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     env:
       ARCH: amd64

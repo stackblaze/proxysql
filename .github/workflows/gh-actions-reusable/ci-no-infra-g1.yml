@@ -50,7 +50,7 @@ jobs:
       consumer_inputs: ${{ toJson(inputs) }}
     secrets: inherit
   pick-runner:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     permissions:
       actions: read          # read in-progress runs/jobs (no repo admin needed)
@@ -63,10 +63,10 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         REPO: ${{ github.repository }}
         POOL_SIZE: ${{ vars.SELFHOSTED_POOL_SIZE || '6' }}
-        ELIGIBLE: ${{ (github.actor == 'renecannao' || (inputs.trigger && fromJson(inputs.trigger).event.workflow_run.actor.login == 'renecannao')) && vars.SELFHOSTED_WORKFLOWS && contains(fromJson(vars.SELFHOSTED_WORKFLOWS), github.workflow) }}
+        ELIGIBLE: ${{ vars.SELFHOSTED_WORKFLOWS && contains(fromJson(vars.SELFHOSTED_WORKFLOWS), github.workflow) }}
       run: |
         set -uo pipefail
-        choice='"ubuntu-22.04"'
+        choice='"[self-hosted, us-east-1]"'
         if [ "${ELIGIBLE:-}" = "true" ]; then
           POOL="${POOL_SIZE:-6}"
           # Listing runners needs repo admin, which no available token has, so
@@ -94,20 +94,20 @@ jobs:
               # which forces the hosted spill below.
               # gh emits one count per page; sum them before comparing capacity.
               # pipefail preserves a failed later page instead of using a partial count.
-              n=$(gh api --paginate "repos/${REPO}/actions/runs/${rid}/jobs?per_page=100" --jq '[.jobs[]|select(.status=="in_progress" and (([.labels[]]|index("proxysql-ci")) != null))]|length' 2>/dev/null |
+              n=$(gh api --paginate "repos/${REPO}/actions/runs/${rid}/jobs?per_page=100" --jq '[.jobs[]|select(.status=="in_progress" and (([.labels[]]|index("us-east-1")) != null))]|length' 2>/dev/null |
                 awk '{total += $1} END {print total+0}') || { echo ">>> WARNING: could not read jobs for run ${rid}; assuming pool is full"; n="${POOL}"; }
               demand=$(( demand + ${n:-0} ))
             done
             free=$(( POOL - demand ))
             echo ">>> self-hosted pool: demand=${demand}/${POOL} free=${free} (in-progress on pool)"
             if [ "${free}" -ge 1 ]; then
-              choice='["self-hosted","proxysql-ci"]'; echo ">>> capacity available -> self-hosted"
+              choice='["self-hosted","us-east-1"]'; echo ">>> capacity available -> self-hosted"
             else
-              choice='"ubuntu-22.04"'; echo ">>> pool at/over capacity -> spill to GitHub-hosted"
+              choice='"[self-hosted, us-east-1]"'; echo ">>> pool at/over capacity -> spill to GitHub-hosted"
             fi
           else
             echo ">>> WARNING: could not read runs:"; sed 's/^/    /' e1
-            choice='["self-hosted","proxysql-ci"]'; echo ">>> failing SAFE to self-hosted (offload unchanged)"
+            choice='["self-hosted","us-east-1"]'; echo ">>> failing SAFE to self-hosted (offload unchanged)"
           fi
         else
           echo ">>> not eligible for self-hosted -> GitHub-hosted"

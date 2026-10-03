@@ -9,7 +9,7 @@ jobs:
       actions: read
       pull-requests: read
   pg-compat:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     permissions:
       contents: read

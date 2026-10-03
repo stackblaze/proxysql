@@ -13,7 +13,7 @@ jobs:
   # suite; direct PR runs can use their event payload without this runner.
   push-label:
     if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 5
     permissions:
       pull-requests: read
@@ -44,7 +44,7 @@ jobs:
   lint:
     needs: push-label
     if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'ci:skip') && (github.event_name != 'push' || (needs.push-label.result == 'success' && needs.push-label.outputs.skip == 'false')) }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, us-east-1]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
